@@ -7,7 +7,7 @@ serving layer. Track 1 of [100 Days, 100 Projects](../README.md).
 | Day | Component | Status | Headline result |
 |---|---|---|---|
 | 1 | [Polite, deduplicating crawler](docs/day01-crawler.md) | ✅ | 55 pages/s at 82.5% of the politeness ceiling; 0 robots/politeness violations; duplicate precision 1.00, recall 0.986 |
-| 2 | Compressed inverted index | ⏳ | |
+| 2 | [Compressed positional inverted index](docs/day02-index.md) | ✅ | 278k Wikipedia articles in 8 min; 3.2× compression; term p50 1.5 ms, AND 6.9 ms, phrase 60 ms; matches brute force |
 | 3 | BM25 ranking (MS MARCO) | ⏳ | |
 | 4 | PageRank | ⏳ | |
 | 5 | Spelling correction | ⏳ | |
@@ -22,7 +22,7 @@ serving layer. Track 1 of [100 Days, 100 Projects](../README.md).
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-python -m pytest                                    # 32 tests, offline
+python -m pytest                                    # 51 tests, offline
 python bench/bench_crawler.py                       # synthetic-web benchmark
 python -m seekr.cli crawl https://books.toscrape.com/ --max-pages 200 --delay 1.0 --db data/books.db
 ```
@@ -38,6 +38,14 @@ src/seekr/crawl/
   crawler.py   per-host politeness scheduler, async workers, retries, optional process pool
   store.py     SQLite: pages, link graph, compressed HTML
   simweb.py    synthetic web with ground truth, for tests and benchmarks
+src/seekr/index/
+  tokenize.py  NFKC + casefold tokens with positions
+  vbyte.py     VByte codec: Python for short lists, NumPy for long ones
+  builder.py   parallel SPIMI: batches -> sorted compressed blocks -> k-way merge
+  skips.py     position skip tables for frequent terms
+  reader.py    memory-mapped postings, lexicon, doc table
+  query.py     AND / OR / NOT / "phrase"
+  corpus.py    Day 1 crawl DB and Wikimedia CirrusSearch dumps
 bench/         benchmarks and results
 docs/          one design note per day
 ```

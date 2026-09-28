@@ -1,0 +1,22 @@
+[
+  {
+    "workers": 0,
+    "docs": 8000,
+    "tokens": 5609955,
+    "seconds": 75.8,
+    "merge_seconds": 17.7,
+    "tokens_per_sec": 74029,
+    "speedup": 1.0,
+    "byte_identical": true
+  },
+  {
+    "workers": 6,
+    "docs": 8000,
+    "tokens": 5609955,
+    "seconds": 42.0,
+    "merge_seconds": 17.4,
+    "tokens_per_sec": 133597,
+    "speedup": 1.8,
+    "byte_identical": true
+  }
+]

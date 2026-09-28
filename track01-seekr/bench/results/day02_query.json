@@ -1,0 +1,81 @@
+{
+  "size": {
+    "docs": 278214,
+    "tokens": 67778256,
+    "terms": 1089575,
+    "postings": 34161617,
+    "raw_text_mb": 408.6,
+    "postings_mb": 168.2,
+    "docid_mb": 45.1,
+    "tf_mb": 34.2,
+    "position_mb": 89.0,
+    "uncompressed_32bit_mb": 544.4,
+    "compression_vs_32bit": 3.24,
+    "postings_pct_of_raw_text": 41.2,
+    "bits_per_position": 10.5,
+    "bits_per_docid": 10.56,
+    "index_db_mb": 288.6,
+    "build_seconds": 483.0,
+    "merge_seconds": 114.5
+  },
+  "latency": {
+    "term": {
+      "queries": 500,
+      "p50_ms": 1.51,
+      "p95_ms": 6.44,
+      "p99_ms": 8.58,
+      "mean_ms": 2.31,
+      "median_results": 24687,
+      "source_doc_missing": 0
+    },
+    "and2": {
+      "queries": 500,
+      "p50_ms": 6.91,
+      "p95_ms": 31.49,
+      "p99_ms": 39.96,
+      "mean_ms": 9.55,
+      "median_results": 1493,
+      "source_doc_missing": 0
+    },
+    "phrase2": {
+      "queries": 500,
+      "p50_ms": 59.94,
+      "p95_ms": 514.35,
+      "p99_ms": 1163.57,
+      "mean_ms": 166.07,
+      "median_results": 283,
+      "source_doc_missing": 0
+    },
+    "phrase3": {
+      "queries": 500,
+      "p50_ms": 70.8,
+      "p95_ms": 814.01,
+      "p99_ms": 1106.56,
+      "mean_ms": 210.04,
+      "median_results": 6,
+      "source_doc_missing": 0
+    }
+  },
+  "worst": {
+    "\"of the\"": {
+      "ms": 1782.7,
+      "results": 138189
+    },
+    "\"in the\"": {
+      "ms": 1686.1,
+      "results": 156490
+    },
+    "the": {
+      "ms": 9.0,
+      "results": 264687
+    },
+    "\"one of the\"": {
+      "ms": 1261.5,
+      "results": 21230
+    },
+    "the of and": {
+      "ms": 75.6,
+      "results": 183761
+    }
+  }
+}
