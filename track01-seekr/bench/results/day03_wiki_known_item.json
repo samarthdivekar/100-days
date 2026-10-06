@@ -1,0 +1,46 @@
+{
+  "bm25": {
+    "queries": 500,
+    "MRR@10": 0.9254,
+    "success@1": 0.882,
+    "success@10": 0.986,
+    "p50_ms": 3.0,
+    "p95_ms": 11.1,
+    "p99_ms": 36.0
+  },
+  "unranked (Day 2)": {
+    "queries": 500,
+    "MRR@10": 0.3131,
+    "success@1": 0.154,
+    "success@10": 0.674,
+    "p50_ms": 1.0,
+    "p95_ms": 5.2,
+    "p99_ms": 26.6
+  },
+  "examples": [
+    {
+      "query": "Taban Deng Gai",
+      "top3": [
+        "Taban Deng Gai",
+        "Deng Xiaoping",
+        "Peter Deng"
+      ]
+    },
+    {
+      "query": "Schloss Johannisberg",
+      "top3": [
+        "Schloss Johannisberg",
+        "Schloss Ettersburg",
+        "Neuschwanstein Castle"
+      ]
+    },
+    {
+      "query": "New York Giants",
+      "top3": [
+        "New York Giants",
+        "Polo Grounds",
+        "2012 New York Giants season"
+      ]
+    }
+  ]
+}

@@ -8,7 +8,7 @@ AND intersects the shortest list first and searches the longer lists with binary
 (`searchsorted`), which costs O(m log n) instead of O(m + n) when lists differ a lot in length.
 A phrase is one vectorized intersection over occurrence keys (doc << 32 | position): shift each
 term's keys back by its offset in the phrase and intersect; whatever survives is a match.
-Ranking (BM25) is Day 3; this module decides *which* documents match.
+This module decides *which* documents match; rank.py (Day 3) orders them.
 """
 
 from __future__ import annotations
@@ -18,8 +18,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from seekr.index.analyzer import Analyzer
 from seekr.index.reader import IndexReader
-from seekr.index.tokenize import tokenize
 
 _EMPTY = np.zeros(0, dtype=np.int64)
 _CLAUSE_RE = re.compile(r'(-?)"([^"]*)"|(\S+)')
@@ -29,10 +29,22 @@ _CLAUSE_RE = re.compile(r'(-?)"([^"]*)"|(\S+)')
 class Clause:
     terms: list[str]  # one term, or several for a phrase
     negated: bool = False
+    offsets: list[int] | None = None  # each term's position in the phrase (gaps where stopwords were)
+
+    def __post_init__(self):
+        if self.offsets is None:
+            self.offsets = list(range(len(self.terms)))
 
 
-def parse(query: str) -> list[list[Clause]]:
-    """AND-list of OR-groups of clauses."""
+def _clause(text: str, negated: bool, analyzer: Analyzer) -> Clause:
+    pairs = analyzer.analyze(text)
+    start = pairs[0][0] if pairs else 0
+    return Clause([t for _, t in pairs], negated, [i - start for i, _ in pairs])
+
+
+def parse(query: str, analyzer: Analyzer | None = None) -> list[list[Clause]]:
+    """AND-list of OR-groups of clauses, analyzed exactly as the index was."""
+    analyzer = analyzer or Analyzer()
     groups: list[list[Clause]] = []
     pending_or = False
     for m in _CLAUSE_RE.finditer(query):
@@ -40,11 +52,11 @@ def parse(query: str) -> list[list[Clause]]:
             pending_or = bool(groups)
             continue
         if m.group(2) is not None:
-            clause = Clause(tokenize(m.group(2)), negated=m.group(1) == "-")
+            clause = _clause(m.group(2), m.group(1) == "-", analyzer)
         else:
             word = m.group(3)
             negated = word.startswith("-") and len(word) > 1
-            clause = Clause(tokenize(word[1:] if negated else word), negated=negated)
+            clause = _clause(word[1:] if negated else word, negated, analyzer)
         if not clause.terms:
             continue
         if pending_or and not clause.negated and not groups[-1][0].negated:
@@ -72,7 +84,8 @@ class Searcher:
         info = self.r.term(term)
         return self.r.docs(info) if info else _EMPTY
 
-    def phrase_docs(self, terms: list[str]) -> np.ndarray:
+    def phrase_docs(self, terms: list[str], offsets: list[int] | None = None) -> np.ndarray:
+        offsets = offsets if offsets is not None else list(range(len(terms)))
         if len(terms) == 1:
             return self.term_docs(terms[0])
         infos = [self.r.term(t) for t in terms]
@@ -89,7 +102,7 @@ class Searcher:
         wanted = np.zeros(self.r.n_docs, dtype=bool)
         wanted[candidates] = True
         keys = None
-        for offset, info in sorted(enumerate(infos), key=lambda x: x[1].cf):
+        for offset, info in sorted(zip(offsets, infos, strict=True), key=lambda x: x[1].cf):
             k = self.r.position_keys(info, candidates)
             k = k[wanted[k >> 32]] - offset
             keys = k if keys is None else np.intersect1d(keys, k, assume_unique=True)
@@ -98,13 +111,13 @@ class Searcher:
         return np.unique(keys >> 32)
 
     def clause_docs(self, clause: Clause) -> np.ndarray:
-        return self.phrase_docs(clause.terms)
+        return self.phrase_docs(clause.terms, clause.offsets)
 
     def search(self, query: str) -> np.ndarray:
         """Sorted ids of every matching document."""
         positive: list[np.ndarray] = []
         negative: list[np.ndarray] = []
-        for group in parse(query):
+        for group in parse(query, self.r.analyzer):
             if group[0].negated:
                 negative.append(self.clause_docs(group[0]))
                 continue

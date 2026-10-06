@@ -54,7 +54,9 @@ def cmd_index(args) -> None:
     if bool(args.crawl_db) == bool(args.cirrus):
         raise SystemExit("give exactly one of --crawl-db or --cirrus")
     docs = from_crawl(args.crawl_db) if args.crawl_db else from_cirrus(args.cirrus, limit=args.limit)
-    builder = IndexBuilder(args.out, block_tokens=args.block_tokens, workers=args.workers)
+    builder = IndexBuilder(
+        args.out, block_tokens=args.block_tokens, workers=args.workers, analyzer=args.analyzer
+    )
     builder.add_all(docs, progress_every=args.progress)
     print(json.dumps(builder.finish(), indent=2))
 
@@ -63,16 +65,24 @@ def cmd_search(args) -> None:
     import time
 
     from seekr.index.query import Searcher
+    from seekr.index.rank import BM25, ranked_search
     from seekr.index.reader import IndexReader
 
     reader = IndexReader(args.index)
-    t0 = time.perf_counter()
-    hits = Searcher(reader).search(args.query)
-    ms = (time.perf_counter() - t0) * 1000
-    print(f"{len(hits):,} matching documents in {ms:.1f} ms")
-    for doc_id in hits[: args.limit]:
-        d = reader.doc(int(doc_id))
-        print(f"  [{doc_id}] {d['title']}  {d['url']}")
+    if args.unranked:
+        t0 = time.perf_counter()
+        hits = Searcher(reader).search(args.query)
+        print(f"{len(hits):,} matching documents in {(time.perf_counter() - t0) * 1000:.1f} ms (index order)")
+        results = [(int(d), None) for d in hits[: args.limit]]
+    else:
+        ranker = BM25(reader, k1=args.k1, b=args.b)  # precomputes per-document length norms once
+        t0 = time.perf_counter()
+        results = ranked_search(reader, args.query, k=args.limit, ranker=ranker)
+        print(f"top {len(results)} by BM25 in {(time.perf_counter() - t0) * 1000:.1f} ms")
+    for doc_id, score in results:
+        d = reader.doc(doc_id)
+        prefix = f"{score:6.2f}" if score is not None else f"[{doc_id}]"
+        print(f"  {prefix}  {d['title']}  {d['url']}")
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -102,6 +112,7 @@ def main(argv: list[str] | None = None) -> None:
     ix.add_argument("--limit", type=int, help="stop after N documents")
     ix.add_argument("--block-tokens", type=int, default=2_000_000, help="SPIMI batch size (tokens)")
     ix.add_argument("--workers", type=int, default=0, help="build blocks in N processes (0 = inline)")
+    ix.add_argument("--analyzer", choices=["plain", "english"], default="english")
     ix.add_argument("--progress", type=int, default=20_000)
     ix.set_defaults(func=cmd_index)
 
@@ -109,6 +120,9 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("query")
     q.add_argument("--index", default="data/index")
     q.add_argument("--limit", type=int, default=10)
+    q.add_argument("--k1", type=float, default=1.2)
+    q.add_argument("--b", type=float, default=0.75)
+    q.add_argument("--unranked", action="store_true", help="Day 2 behaviour: all matches, index order")
     q.set_defaults(func=cmd_search)
 
     args = p.parse_args(argv)

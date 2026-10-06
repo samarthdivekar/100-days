@@ -33,8 +33,8 @@ from pathlib import Path
 import numpy as np
 
 from seekr.index import vbyte
+from seekr.index.analyzer import Analyzer
 from seekr.index.skips import build_skips
-from seekr.index.tokenize import tokenize
 
 _ENTRY = struct.Struct("<HIQIII")  # term_len, df, cf, docs_len, tfs_len, pos_len
 
@@ -85,11 +85,15 @@ def _read_block(path: Path) -> Iterator[tuple[str, int, int, bytes, bytes, bytes
             yield term, df, cf, f.read(dlen), f.read(tflen), f.read(plen)
 
 
-def _build_block(path: str, first_id: int, docs: list[tuple[str, str]], store_text: bool):
+def _build_block(
+    path: str, first_id: int, docs: list[tuple[str, str]], store_text: bool, analyzer: str = "plain"
+):
     """Index one batch of documents into a sorted, compressed block file (runs in a worker process).
 
-    Returns per-document token counts, compressed texts, and the batch's raw byte count.
+    Returns per-document indexed-term counts (the document length BM25 uses), compressed texts,
+    and the batch's raw byte count.
     """
+    analyze = Analyzer(analyzer).analyze
     postings: dict[str, tuple[list, list, list]] = {}
     lengths: list[int] = []
     blobs: list[bytes | None] = []
@@ -97,9 +101,9 @@ def _build_block(path: str, first_id: int, docs: list[tuple[str, str]], store_te
     for offset, (title, text) in enumerate(docs):
         doc_id = first_id + offset
         # Title words are indexed before the body so a title phrase is searchable too.
-        tokens = tokenize(title + "\n" + text)
+        tokens = analyze(title + "\n" + text)
         positions: dict[str, list[int]] = {}
-        for i, tok in enumerate(tokens):
+        for i, tok in tokens:
             positions.setdefault(tok, []).append(i)
         for term, ps in positions.items():
             entry = postings.get(term)
@@ -132,6 +136,7 @@ class IndexBuilder:
         block_tokens: int = 2_000_000,
         store_text: bool = True,
         workers: int = 0,
+        analyzer: str = "plain",
     ):
         self.out = Path(out_dir)
         if self.out.exists():
@@ -141,6 +146,7 @@ class IndexBuilder:
         self.block_tokens = block_tokens
         self.store_text = store_text
         self.workers = workers
+        self.analyzer = Analyzer(analyzer).name
         self.db = sqlite3.connect(self.out / "index.db")
         self.db.executescript(
             """CREATE TABLE docs (id INTEGER PRIMARY KEY, url TEXT, title TEXT, length INTEGER, text BLOB);
@@ -181,9 +187,14 @@ class IndexBuilder:
         path = self.tmp / f"block-{len(self._blocks) + len(self._pending):05d}.bin"
         payload = [(d.title, d.text) for d in docs]
         if self._pool is None:
-            self._record(path, first_id, docs, _build_block(str(path), first_id, payload, self.store_text))
+            self._record(
+                path,
+                first_id,
+                docs,
+                _build_block(str(path), first_id, payload, self.store_text, self.analyzer),
+            )
             return
-        future = self._pool.submit(_build_block, str(path), first_id, payload, self.store_text)
+        future = self._pool.submit(_build_block, str(path), first_id, payload, self.store_text, self.analyzer)
         self._pending.append((path, first_id, docs, future))
         while len(self._pending) > 2 * self.workers:  # bound memory: at most 2 batches per worker in flight
             self._complete_oldest()
@@ -252,6 +263,7 @@ class IndexBuilder:
         self.db.executemany("INSERT INTO terms VALUES (?, ?, ?, ?, ?, ?, ?)", lexicon)
         n_postings = sum(x[1] for x in lexicon)
         stats = {
+            "analyzer": self.analyzer,
             "docs": self.n_docs,
             "tokens": self.n_tokens,
             "terms": len(lexicon),

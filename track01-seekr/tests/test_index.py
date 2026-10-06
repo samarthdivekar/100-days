@@ -203,3 +203,31 @@ def test_skip_tables_give_identical_phrase_results(built, tmp_path):
         q = f'"{a} {b}"' if rng.random() < 0.5 else f'"{a} {b} {c}" {rng.choice(VOCAB)}'
         assert searcher.search(q).tolist() == _brute(docs, q), q
     reader.close()
+
+
+def test_crawl_indexing_skips_site_chrome(tmp_path):
+    """Day 3 fix: crawled pages are indexed by main content, not menus repeated on every page."""
+    import asyncio
+
+    from seekr.crawl.crawler import CrawlConfig, Crawler
+    from seekr.crawl.simweb import SimWeb
+    from seekr.crawl.store import PageStore
+    from seekr.index.corpus import from_crawl
+
+    web = SimWeb(n_hosts=1, pages_per_host=10, latency=0.001, seed=12)
+    cfg = CrawlConfig(seeds=[f"http://{h}/page/0" for h in web.hosts], max_pages=50, delay=0.0)
+    store = PageStore(tmp_path / "crawl.db")
+    asyncio.run(Crawler(cfg, store, web.transport()).run())
+    store.close()
+    for main, expect_chrome in ((True, 0), (False, None)):
+        out = tmp_path / f"idx-{main}"
+        b = IndexBuilder(out)
+        b.add_all(from_crawl(tmp_path / "crawl.db", main_content=main))
+        b.finish()
+        r = IndexReader(out)
+        hits = Searcher(r).search("mystery")  # a word that only appears in every page's sidebar
+        if expect_chrome == 0:
+            assert hits.size == 0
+        else:
+            assert hits.size == r.n_docs > 0
+        r.close()

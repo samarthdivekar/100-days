@@ -12,6 +12,7 @@ from pathlib import Path
 import numpy as np
 
 from seekr.index import vbyte
+from seekr.index.analyzer import Analyzer
 
 
 @dataclass(frozen=True)
@@ -33,6 +34,7 @@ class IndexReader:
         self._mm = mmap.mmap(self._file.fileno(), 0, access=mmap.ACCESS_READ) if self._size() else None
         self.meta = {k: json.loads(v) for k, v in self.db.execute("SELECT key, value FROM meta")}
         self.n_docs = int(self.meta["docs"])
+        self.analyzer = Analyzer(self.meta.get("analyzer", "plain"))
         self._doc_lengths: np.ndarray | None = None
         self.skip_every = int(self.meta.get("skip_every", 0))
         skips_path = self.dir / "skips.bin"
