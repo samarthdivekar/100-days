@@ -103,12 +103,18 @@ class BM25:
 
 
 def ranked_search(
-    reader: IndexReader, query: str, k: int = 10, ranker: BM25 | None = None
+    reader: IndexReader,
+    query: str,
+    k: int = 10,
+    ranker: BM25 | None = None,
+    prior: np.ndarray | None = None,
+    prior_weight: float = 0.0,
 ) -> list[tuple[int, float]]:
     """Seekr's search: BM25 over the query's positive terms.
 
     Plain words rank the whole corpus (any word may match). Phrases, `-exclusions` and `OR` keep their
-    boolean meaning: they decide which documents qualify, and BM25 orders those.
+    boolean meaning: they decide which documents qualify, and BM25 orders those. With a `prior`
+    (e.g. log PageRank), matching documents score bm25 + prior_weight * prior.
     """
     from seekr.index.query import Searcher, parse
 
@@ -131,7 +137,30 @@ def ranked_search(
         mask[candidates] = True
         acc[~mask] = 0
     hits = np.flatnonzero(acc > 0)
+    final = acc[hits] + prior_weight * prior[hits] if prior is not None and prior_weight else acc[hits]
     if hits.size > k:
-        hits = hits[np.argpartition(-acc[hits], k - 1)[:k]]
-    order = np.lexsort((hits, -acc[hits]))
-    return [(int(d), float(acc[d])) for d in hits[order]]
+        top = np.argpartition(-final, k - 1)[:k]
+        hits, final = hits[top], final[top]
+    order = np.lexsort((hits, -final))
+    return [(int(d), float(s)) for d, s in zip(hits[order], final[order], strict=True)]
+
+
+def load_prior(index_dir, kind: str) -> np.ndarray | None:
+    """Static, query-independent document scores to add to BM25 (Day 4).
+
+    pagerank: log(PageRank · N), so an average page scores 0 and each 10x in PageRank adds ln 10.
+    indegree: log(1 + in-links), the simple baseline PageRank has to beat.
+    """
+    from pathlib import Path
+
+    index_dir = Path(index_dir)
+    if kind in ("none", None):
+        return None
+    if kind == "pagerank":
+        pr = np.load(index_dir / "pagerank.npy")
+        return np.log(pr * pr.size).astype(np.float32)
+    if kind == "indegree":
+        links = np.load(index_dir / "links.npz")
+        n = len(links["incoming_links"])
+        return np.log1p(np.bincount(links["dst"], minlength=n)).astype(np.float32)
+    raise ValueError(f"unknown prior {kind!r}; expected none, pagerank or indegree")

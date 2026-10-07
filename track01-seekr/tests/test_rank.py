@@ -192,3 +192,37 @@ def test_ranked_search_filters_then_ranks(corpus_index):
     assert len(free) > len(phrase)  # plain words: any word may match
     assert all("raptor" not in docs[d].text.split() for d, _ in negated)
     assert [s for _, s in free] == sorted((s for _, s in free), reverse=True)
+
+
+def test_prior_reorders_ties_and_weight_zero_is_identity(tmp_path):
+    from seekr.index.rank import load_prior, ranked_search
+
+    docs = [Document(f"d{i}", "", "enron energy trading company") for i in range(5)]  # identical BM25
+    b = IndexBuilder(tmp_path / "p", analyzer="english")
+    b.add_all(docs)
+    b.finish()
+    r = IndexReader(tmp_path / "p")
+    plain = ranked_search(r, "enron", k=5)
+    assert [d for d, _ in plain] == [0, 1, 2, 3, 4]  # ties -> lower id first
+    prior = np.zeros(5, dtype=np.float32)
+    prior[3] = 2.0
+    assert ranked_search(r, "enron", k=5, prior=prior, prior_weight=0.0) == plain
+    assert ranked_search(r, "enron", k=5, prior=prior, prior_weight=0.5)[0][0] == 3
+
+    pr = np.array([0.1, 0.1, 0.1, 0.6, 0.1])
+    np.save(tmp_path / "p" / "pagerank.npy", pr)
+    np.savez(
+        tmp_path / "p" / "links.npz",
+        src=np.array([0, 1, 2]),
+        dst=np.array([3, 3, 4]),
+        incoming_links=np.zeros(5),
+        popularity=np.zeros(5),
+    )
+    assert np.allclose(load_prior(tmp_path / "p", "pagerank"), np.log(pr * 5), atol=1e-6)
+    assert load_prior(tmp_path / "p", "indegree").tolist() == pytest.approx(
+        np.log1p([0, 0, 0, 2, 1]).tolist()
+    )
+    assert load_prior(tmp_path / "p", "none") is None
+    with pytest.raises(ValueError):
+        load_prior(tmp_path / "p", "bogus")
+    r.close()

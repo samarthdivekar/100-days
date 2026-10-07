@@ -9,7 +9,7 @@ serving layer. Track 1 of [100 Days, 100 Projects](../README.md).
 | 1 | [Polite, deduplicating crawler](docs/day01-crawler.md) | ✅ | 55 pages/s at 82.5% of the politeness ceiling; 0 robots/politeness violations; duplicate precision 1.00, recall 0.986 |
 | 2 | [Compressed positional inverted index](docs/day02-index.md) | ✅ | 278k Wikipedia articles in 8 min; 3.2× compression; term p50 1.5 ms, AND 6.9 ms, phrase 60 ms; matches brute force |
 | 3 | [BM25 ranking, checked against Anserini](docs/day03-bm25.md) | ✅ | Within 0.0045 nDCG@10 of Anserini on 5 BEIR datasets; on Wikipedia the right article ranks first 88% of the time (unranked: 15%) |
-| 4 | PageRank | ⏳ | |
+| 4 | [PageRank, and whether it beats counting links](docs/day04-pagerank.md) | ✅ | 12.6M-link graph in 28 iterations (4.6 s), matches networkx; as a prior +8.6 pts right-article-first (p≈4e-12), but tied with plain in-degree (p=0.89) |
 | 5 | Spelling correction | ⏳ | |
 | 6 | Autocomplete | ⏳ | |
 | 7 | HNSW vector index | ⏳ | |
@@ -22,7 +22,7 @@ serving layer. Track 1 of [100 Days, 100 Projects](../README.md).
 ```bash
 python -m venv .venv && source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -e ".[dev]"
-python -m pytest                                    # 67 tests, offline
+python -m pytest                                    # 79 tests, offline
 python bench/bench_crawler.py                       # synthetic-web benchmark
 python -m seekr.cli crawl https://books.toscrape.com/ --max-pages 200 --delay 1.0 --db data/books.db
 ```
@@ -48,6 +48,10 @@ src/seekr/index/
   analyzer.py  plain or Lucene-style English (stopwords + Porter), positions kept
   rank.py      BM25 (Lucene's formula, optional 1-byte length norms), ranked search
   corpus.py    Day 1 crawl DB and Wikimedia CirrusSearch dumps
+src/seekr/links/
+  graph.py     Wikipedia link graph (redirect-aware), aligned with index doc ids
+  pagerank.py  power iteration on an edge list (bincount), dangling-node handling
+  stats.py     Spearman with ties, top-k overlap
 src/seekr/eval/
   metrics.py   nDCG / recall with trec_eval conventions
   beir.py      BEIR loader + runner, Anserini reference numbers

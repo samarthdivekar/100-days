@@ -5,6 +5,8 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import sys
+from pathlib import Path
 
 from seekr.crawl.crawler import DEFAULT_AGENT, CrawlConfig, crawl
 from seekr.crawl.store import PageStore
@@ -65,7 +67,7 @@ def cmd_search(args) -> None:
     import time
 
     from seekr.index.query import Searcher
-    from seekr.index.rank import BM25, ranked_search
+    from seekr.index.rank import BM25, load_prior, ranked_search
     from seekr.index.reader import IndexReader
 
     reader = IndexReader(args.index)
@@ -76,16 +78,44 @@ def cmd_search(args) -> None:
         results = [(int(d), None) for d in hits[: args.limit]]
     else:
         ranker = BM25(reader, k1=args.k1, b=args.b)  # precomputes per-document length norms once
+        kind = args.prior
+        if kind == "auto":
+            kind = "pagerank" if (Path(args.index) / "pagerank.npy").exists() else "none"
+        prior = load_prior(args.index, kind)
         t0 = time.perf_counter()
-        results = ranked_search(reader, args.query, k=args.limit, ranker=ranker)
-        print(f"top {len(results)} by BM25 in {(time.perf_counter() - t0) * 1000:.1f} ms")
+        results = ranked_search(
+            reader, args.query, k=args.limit, ranker=ranker, prior=prior, prior_weight=args.prior_weight
+        )
+        label = "BM25" if prior is None else f"BM25 + {args.prior_weight} x {kind}"
+        print(f"top {len(results)} by {label} in {(time.perf_counter() - t0) * 1000:.1f} ms")
     for doc_id, score in results:
         d = reader.doc(doc_id)
         prefix = f"{score:6.2f}" if score is not None else f"[{doc_id}]"
         print(f"  {prefix}  {d['title']}  {d['url']}")
 
 
+def cmd_links(args) -> None:
+    import numpy as np
+
+    from seekr.links.graph import build_link_graph
+    from seekr.links.pagerank import pagerank
+
+    graph = build_link_graph(args.cirrus)
+    print(json.dumps(graph.stats, indent=2))
+    result = pagerank(graph.src, graph.dst, graph.n, damping=args.damping)
+    out = Path(args.index)
+    graph.save(out / "links.npz")
+    np.save(out / "pagerank.npy", result.rank)
+    print(f"PageRank: {result.iterations} iterations, converged={result.converged}; saved to {out}")
+    for i in np.argsort(-result.rank)[:10]:
+        print(f"  {result.rank[i]:.5f}  {graph.titles[i]}")
+
+
 def main(argv: list[str] | None = None) -> None:
+    # Windows pipes default to the ANSI code page, which garbles titles like "Île-de-France".
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
     p = argparse.ArgumentParser(prog="seekr", description="A search engine built from scratch.")
     sub = p.add_subparsers(dest="command", required=True)
 
@@ -123,7 +153,15 @@ def main(argv: list[str] | None = None) -> None:
     q.add_argument("--k1", type=float, default=1.2)
     q.add_argument("--b", type=float, default=0.75)
     q.add_argument("--unranked", action="store_true", help="Day 2 behaviour: all matches, index order")
+    q.add_argument("--prior", choices=["auto", "none", "pagerank", "indegree"], default="auto")
+    q.add_argument("--prior-weight", type=float, default=0.3, help="tuned on held-out queries (Day 4)")
     q.set_defaults(func=cmd_search)
+
+    ln = sub.add_parser("links", help="build the link graph and PageRank for a Wikipedia index")
+    ln.add_argument("--cirrus", required=True, help="the same CirrusSearch dump the index was built from")
+    ln.add_argument("--index", default="data/index-en")
+    ln.add_argument("--damping", type=float, default=0.85)
+    ln.set_defaults(func=cmd_links)
 
     args = p.parse_args(argv)
     args.func(args)
